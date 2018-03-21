@@ -1,4 +1,5 @@
-# coding: utf-8
+#!/usr/bin/env python3
+#-*- coding: utf-8 -*-
 
 import logging
 import re
@@ -6,9 +7,9 @@ from collections import Counter
 
 import numpy as np
 import torch
-from sklearn.datasets import fetch_20newsgroups
 from torch.autograd import Variable
 from torch.utils.data import Dataset
+from sklearn.datasets import fetch_20newsgroups
 from tqdm import tqdm
 
 # Hyperparameters
@@ -16,7 +17,7 @@ N_EMBEDDING = 300
 BASE_STD = 0.01
 BATCH_SIZE = 512
 NUM_EPOCH = 10
-MIN_WORD_OCCURENCES = 10
+MIN_WORD_OCCURRENCES = 10
 X_MAX = 100
 ALPHA = 0.75
 BETA = 0.0001
@@ -35,13 +36,13 @@ def cuda(x):
 
 
 class WordIndexer:
-    """Transform g a dataset of text to a list of index of words. Not memory 
+    """Transform g a dataset of text to a list of index of words. Not memory
     optimized for big datasets"""
 
-    def __init__(self, min_word_occurences=1, right_window=1, oov_word="OOV"):
+    def __init__(self, min_word_occurrences=1, right_window=1, oov_word="OOV"):
         self.oov_word = oov_word
         self.right_window = right_window
-        self.min_word_occurences = min_word_occurences
+        self.min_word_occurrences = min_word_occurrences
         self.word_to_index = {oov_word: 0}
         self.index_to_word = [oov_word]
         self.word_occurrences = {}
@@ -66,9 +67,9 @@ class WordIndexer:
         word_occurrences = Counter(word for words in l_words for word in words)
 
         self.word_occurrences = {
-            word: n_occurences
-            for word, n_occurences in word_occurrences.items()
-            if n_occurences >= self.min_word_occurences}
+            word: n_occurrences
+            for word, n_occurrences in word_occurrences.items()
+            if n_occurrences >= self.min_word_occurrences}
 
         oov_index = 0
         return [[self._get_or_set_word_to_index(word)
@@ -104,43 +105,43 @@ class GloveDataset(Dataset):
         torch.manual_seed(random_state)
 
         self.indexer = WordIndexer(right_window=right_window,
-                                   min_word_occurences=MIN_WORD_OCCURENCES)
+                                   min_word_occurrences=MIN_WORD_OCCURRENCES)
         data = self.indexer.fit_transform(texts)
         left, right, n_occurrences = self.indexer.get_comatrix(data)
         n_occurrences = np.array(n_occurrences)
         self.n_obs = len(left)
 
         # We create the variables
-        self.L_words = cuda(torch.LongTensor(left))
-        self.R_words = cuda(torch.LongTensor(right))
+        self.l_words = cuda(torch.LongTensor(left))
+        self.r_words = cuda(torch.LongTensor(right))
 
         self.weights = np.minimum((n_occurrences / X_MAX) ** ALPHA, 1)
         self.weights = Variable(cuda(torch.FloatTensor(self.weights)))
         self.y = Variable(cuda(torch.FloatTensor(np.log(n_occurrences))))
 
         # We create the embeddings and biases
-        N_WORDS = self.indexer.n_words
-        L_vecs = cuda(torch.randn((N_WORDS, N_EMBEDDING)) * BASE_STD)
-        R_vecs = cuda(torch.randn((N_WORDS, N_EMBEDDING)) * BASE_STD)
-        L_biases = cuda(torch.randn((N_WORDS,)) * BASE_STD)
-        R_biases = cuda(torch.randn((N_WORDS,)) * BASE_STD)
+        n_words = self.indexer.n_words
+        l_vecs = cuda(torch.randn((n_words, N_EMBEDDING)) * BASE_STD)   # pylint: disable=no-member
+        r_vecs = cuda(torch.randn((n_words, N_EMBEDDING)) * BASE_STD)   # pylint: disable=no-member
+        l_biases = cuda(torch.randn((n_words,)) * BASE_STD)             # pylint: disable=no-member
+        r_biases = cuda(torch.randn((n_words,)) * BASE_STD)             # pylint: disable=no-member
         self.all_params = [Variable(e, requires_grad=True)
-                           for e in (L_vecs, R_vecs, L_biases, R_biases)]
-        self.L_vecs, self.R_vecs, self.L_biases, self.R_biases = self.all_params
+                           for e in (l_vecs, r_vecs, l_biases, r_biases)]
+        self.l_vecs, self.r_vecs, self.l_biases, self.r_biases = self.all_params
 
 
 def gen_batchs(data):
     """Batch sampling function"""
-    indices = torch.randperm(len(data))
+    indices = torch.randperm(len(data))                                 # pylint: disable=no-member
     if USE_CUDA:
         indices = indices.cuda()
     for idx in range(0, len(data) - BATCH_SIZE + 1, BATCH_SIZE):
         sample = indices[idx:idx + BATCH_SIZE]
-        l_words, r_words = data.L_words[sample], data.R_words[sample]
+        l_words, r_words = data.l_words[sample], data.r_words[sample]
         l_vecs = data.L_vecs[l_words]
-        r_vecs = data.R_vecs[r_words]
-        l_bias = data.L_biases[l_words]
-        r_bias = data.R_biases[r_words]
+        r_vecs = data.r_vecs[r_words]
+        l_bias = data.l_biases[l_words]
+        r_bias = data.r_biases[r_words]
         weight = data.weights[sample]
         y = data.y[sample]
         yield weight, l_vecs, r_vecs, y, l_bias, r_bias
@@ -170,7 +171,7 @@ def train_model(data: GloveDataset):
         logging.info("Average loss for epoch %i: %.5f", epoch + 1, avg_loss)
 
 
-if __name__ == "__main__":
+def main():
     logging.info("Fetching data")
     newsgroup = fetch_20newsgroups(remove=('headers', 'footers', 'quotes'))
     logging.info("Build dataset")
@@ -179,3 +180,7 @@ if __name__ == "__main__":
     logging.info("#Ngrams: %s", len(glove_data))
     logging.info("Start training")
     train_model(glove_data)
+
+
+if __name__ == "__main__":
+    main()
