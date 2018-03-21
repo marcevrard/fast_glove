@@ -138,7 +138,7 @@ def gen_batchs(data):
     for idx in range(0, len(data) - BATCH_SIZE + 1, BATCH_SIZE):
         sample = indices[idx:idx + BATCH_SIZE]
         l_words, r_words = data.l_words[sample], data.r_words[sample]
-        l_vecs = data.L_vecs[l_words]
+        l_vecs = data.l_vecs[l_words]
         r_vecs = data.r_vecs[r_words]
         l_bias = data.l_biases[l_words]
         r_bias = data.r_biases[r_words]
