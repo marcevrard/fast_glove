@@ -56,64 +56,64 @@ class WordIndexer:
     '''Transform g a dataset of text to a list of index of words.
     Not memory optimized for big datasets'''
 
-    def __init__(self, min_word_occurrences=1, right_window=1, oov_word='OOV'):
+    def __init__(self, occur_min=1, win_r=1, oov_word='OOV'):
         self.oov_word = oov_word
-        self.right_window = right_window
-        self.min_word_occurrences = min_word_occurrences
-        self.word_to_index = {oov_word: 0}
-        self.index_to_word = [oov_word]
+        self.win_r = win_r
+        self.occur_min = occur_min
+        self.word2index = {oov_word: 0}
+        self.words = [oov_word]
         self.word_occurrences = {}
-        self.re_words = re.compile(r'\b[a-zA-Z]{2,}\b')
+        self.words_re = re.compile(r'\b[a-zA-Z]{2,}\b')
 
     def _get_or_set_word_to_index(self, word):
         try:
-            return self.word_to_index[word]
+            return self.word2index[word]
         except KeyError:
-            idx = len(self.word_to_index)
-            self.word_to_index[word] = idx
-            self.index_to_word.append(word)
+            idx = len(self.word2index)
+            self.word2index[word] = idx
+            self.words.append(word)
             return idx
 
     @property
-    def n_words(self):
-        return len(self.word_to_index)
+    def words_num(self):
+        return len(self.word2index)
 
     def fit_transform(self, texts):
-        l_words = [list(self.re_words.findall(sentence.lower()))
+        words_l = [list(self.words_re.findall(sentence.lower()))
                    for sentence in texts]
-        word_occurrences = Counter(word for words in l_words for word in words)
+        word_occurrences = Counter(word for words in words_l for word in words)
 
         self.word_occurrences = {
-            word: n_occurrences
-            for word, n_occurrences in word_occurrences.items()
-            if n_occurrences >= self.min_word_occurrences}
+            word: occurs_num
+            for word, occurs_num in word_occurrences.items()
+            if occurs_num >= self.occur_min}
 
         oov_index = 0
         return [[self._get_or_set_word_to_index(word)
                  if word in self.word_occurrences else oov_index
                  for word in words]
-                for words in l_words]
+                for words in words_l]
 
-    def _get_ngrams(self, indexes):
-        for i, left_index in enumerate(indexes):
-            window = indexes[i + 1 : i + self.right_window + 1]
-            for distance, right_index in enumerate(window):
-                yield left_index, right_index, distance + 1
+    def _get_ngrams(self, indices):
+        for i, index_l in enumerate(indices):
+            window = indices[i + 1 : i + self.win_r + 1]
+            for distance, index_r in enumerate(window):
+                yield index_l, index_r, distance + 1
 
     def get_comatrix(self, data):
         comatrix = Counter()
         z = 0
-        for indexes in data:
-            l_ngrams = self._get_ngrams(indexes)
-            for left_index, right_index, distance in l_ngrams:
-                comatrix[(left_index, right_index)] += 1. / distance
+        for indices in data:
+            ngrams_l = self._get_ngrams(indices)
+            for index_l, index_r, distance in ngrams_l:
+                comatrix[(index_l, index_r)] += 1. / distance
                 z += 1
         return zip(*[(left, right, x) for (left, right), x in comatrix.items()])
 
 
 class GloveDataset(Dataset):
     def __len__(self):
-        return self.n_obs
+        return self.obs_num
 
     def __getitem__(self, index):
         raise NotImplementedError()
@@ -122,30 +122,30 @@ class GloveDataset(Dataset):
         self.config = cfg = config
         torch.manual_seed(SEED)
 
-        self.indexer = WordIndexer(right_window=cfg['right_window'],
-                                   min_word_occurrences=cfg['min_word_occurrences'])
+        self.indexer = WordIndexer(win_r=cfg['win_r'],
+                                   occur_min=cfg['occur_min'])
         data = self.indexer.fit_transform(texts)
-        left, right, n_occurrences = self.indexer.get_comatrix(data)
-        n_occurrences = np.array(n_occurrences)
-        self.n_obs = len(left)
+        left, right, occurs_num = self.indexer.get_comatrix(data)
+        occurs_num = np.array(occurs_num)
+        self.obs_num = len(left)
 
         # We create the variables
-        self.l_words = cuda(torch.LongTensor(left))
-        self.r_words = cuda(torch.LongTensor(right))
+        self.words_l = cuda(torch.LongTensor(left))
+        self.words_r = cuda(torch.LongTensor(right))
 
-        self.weights = np.minimum((n_occurrences / cfg['x_max'])**cfg['alpha'], 1)
+        self.weights = np.minimum((occurs_num / cfg['x_max'])**cfg['alpha'], 1)
         self.weights = Variable(cuda(torch.FloatTensor(self.weights)))
-        self.y = Variable(cuda(torch.FloatTensor(np.log(n_occurrences))))
+        self.y = Variable(cuda(torch.FloatTensor(np.log(occurs_num))))
 
         # We create the embeddings and biases
-        n_words = self.indexer.n_words
-        l_vecs = cuda(torch.randn((n_words, cfg['n_embedding'])) * cfg['base_std'])     # pylint: disable=no-member
-        r_vecs = cuda(torch.randn((n_words, cfg['n_embedding'])) * cfg['base_std'])     # pylint: disable=no-member
-        l_biases = cuda(torch.randn((n_words,)) * cfg['base_std'])                      # pylint: disable=no-member
-        r_biases = cuda(torch.randn((n_words,)) * cfg['base_std'])                      # pylint: disable=no-member
-        self.all_params = [Variable(e, requires_grad=True)
-                           for e in (l_vecs, r_vecs, l_biases, r_biases)]
-        self.l_vecs, self.r_vecs, self.l_biases, self.r_biases = self.all_params
+        words_num = self.indexer.words_num
+        vecs_l = cuda(torch.randn((words_num, cfg['emb_dim'])) * cfg['std_base'])   # pylint: disable=no-member
+        vecs_r = cuda(torch.randn((words_num, cfg['emb_dim'])) * cfg['std_base'])   # pylint: disable=no-member
+        biases_l = cuda(torch.randn((words_num,)) * cfg['std_base'])                # pylint: disable=no-member
+        biases_r = cuda(torch.randn((words_num,)) * cfg['std_base'])                # pylint: disable=no-member
+        self.params_all = [Variable(e, requires_grad=True)
+                           for e in (vecs_l, vecs_r, biases_l, biases_r)]
+        self.vecs_l, self.vecs_r, self.biases_l, self.biases_r = self.params_all
 
 
 def gen_batchs(data, config):
@@ -157,35 +157,35 @@ def gen_batchs(data, config):
         indices = indices.cuda()
     for idx in range(0, len(data) - cfg['batch_size'] + 1, cfg['batch_size']):
         sample = indices[idx:idx + cfg['batch_size']]
-        l_words, r_words = data.l_words[sample], data.r_words[sample]
-        l_vecs = data.l_vecs[l_words]
-        r_vecs = data.r_vecs[r_words]
-        l_bias = data.l_biases[l_words]
-        r_bias = data.r_biases[r_words]
+        words_l, words_r = data.words_l[sample], data.words_r[sample]
+        vecs_l = data.vecs_l[words_l]
+        vecs_r = data.vecs_r[words_r]
+        bias_l = data.biases_l[words_l]
+        bias_r = data.biases_r[words_r]
         weight = data.weights[sample]
         y = data.y[sample]
-        yield weight, l_vecs, r_vecs, y, l_bias, r_bias
+        yield weight, vecs_l, vecs_r, y, bias_l, bias_r
 
 
-def get_loss(weight, l_vecs, r_vecs, log_covals, l_bias, r_bias):
-    sim = (l_vecs * r_vecs).sum(1).view(-1)
-    x = (sim + l_bias + r_bias - log_covals) ** 2
+def get_loss(weight, vecs_l, vecs_r, log_covals, bias_l, bias_r):
+    sim = (vecs_l * vecs_r).sum(1).view(-1)
+    x = (sim + bias_l + bias_r - log_covals) ** 2
     loss = torch.mul(x, weight)
     return loss.mean()
 
 
 def train_model(data: GloveDataset, config):
-    optimizer = torch.optim.Adam(data.all_params, weight_decay=1e-8)
+    optimizer = torch.optim.Adam(data.params_all, weight_decay=1e-8)
     optimizer.zero_grad()
-    for epoch in tqdm(range(config['num_epoch'])):
+    for epoch in tqdm(range(config['epochs_num'])):
         logging.info(f"Start epoch {epoch}")
-        num_batches = int(len(data) / config['batch_size'])
+        batches_num = int(len(data) / config['batch_size'])
         avg_loss = 0.0
-        n_batch = int(len(data) / config['batch_size'])
-        for batch in tqdm(gen_batchs(data, config), total=n_batch, mininterval=1):
+        batch_n = int(len(data) / config['batch_size'])
+        for batch in tqdm(gen_batchs(data, config), total=batch_n, mininterval=1):
             optimizer.zero_grad()
             loss = get_loss(*batch)
-            avg_loss += loss.data[0] / num_batches
+            avg_loss += loss.data[0] / batches_num
             loss.backward()
             optimizer.step()
         logging.info(f"Average loss for epoch {epoch + 1}: {avg_loss: .5f}")
@@ -210,7 +210,7 @@ def main(argp):
 
     logging.info("Build dataset")
     glove_data = GloveDataset(newsgroup.data, config)
-    logging.info(f"#Words: {glove_data.indexer.n_words}")
+    logging.info(f"#Words: {glove_data.indexer.words_num}")
     logging.info(f"#Ngrams: {len(glove_data)}")
 
     logging.info("Start training")

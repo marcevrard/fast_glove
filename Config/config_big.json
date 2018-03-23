@@ -1,11 +1,11 @@
 {
-    "n_embedding": 300,
-    "base_std": 0.01,
+    "emb_dim": 300,
+    "std_base": 0.01,
     "batch_size": 512,
-    "num_epoch": 10,
-    "min_word_occurrences": 10,
+    "epochs_num": 10,
+    "occur_min": 10,
     "x_max": 100,
     "alpha": 0.75,
     "beta": 1e-4,
-    "right_window": 4
+    "win_r": 4
 }
